@@ -1,0 +1,24 @@
+# looot-lookalike
+
+> Open-source lookalike company search. 3 to 20 seed domains in, a ranked list out, each score explained by signal, weight, provider and cost. Data comes from looot (https://looot.ai), one token, pay per call.
+
+## Run
+
+- Demo, no token: `npm run demo` (web UI on http://localhost:3230) or `npm run lookalike -- --demo`
+- Price only: `npm run lookalike -- --domains a.com,b.com,c.com --dry-run`
+- Real run: `LOOOT_TOKEN=... npm run lookalike -- --seeds seeds.txt --cap 1 --out results-out`
+
+## Files
+
+- weights.example.yaml: scoring weights and options
+- src/lib/sources.ts: the looot endpoints and list prices used
+- src/lib/score.ts: the score and its breakdown
+- src/lib/engine.ts: quote, cap, idempotency keys, pending runs
+- skills/looot-lookalike/SKILL.md: Claude Code skill
+
+## Rules
+
+- The cap is per run (`--cap`, default $1). Calls that would cross it are skipped.
+- A call still running when waiting stops is "pending", not failed.
+- A signal with no data is left out of the score and shown as lower coverage. Nothing is guessed.
+- Output: lookalikes-YYYYMMDD-HHMMSS.json, .csv and .md.

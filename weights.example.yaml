@@ -1,0 +1,21 @@
+# Edit the numbers, not the keys. They need not add up to 1; the score divides by the weights that had data.
+weights:
+  industry: 0.30     # candidate industry is one the seeds share
+  size: 0.20         # employee count is inside, or near, the seeds' range
+  technology: 0.20   # candidate uses technologies the seeds share
+  keywords: 0.15     # candidate keywords overlap the seeds' keywords
+  region: 0.10       # candidate country is one the seeds share
+  agreement: 0.05    # how many search providers returned it, and how high
+
+# A trait must appear in this share of the seeds that have data for it.
+minSeedShare: 0.4
+# Candidates with less than this share of the weights available are dropped from the ranking.
+minCoverage: 0.35
+# Rows to ask each search provider for.
+candidatesPerSource: 50
+# Search providers, in order. See src/lib/sources.ts for the options.
+searchSources: [thecompaniesapi_similar, ai_ark_lookalike]
+# Which provider enriches the seeds.
+seedEnrich: companyenrich
+# Enrich this many top candidates to fill gaps. 0 turns it off. Each costs one enrich call.
+enrichTop: 0
