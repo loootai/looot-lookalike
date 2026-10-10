@@ -1,8 +1,12 @@
+<p align="center"><img src="assets/hero.png" alt="looot-lookalike" width="100%"></p>
+
 # looot-lookalike
+
+[![License](https://img.shields.io/github/license/loootai/looot-lookalike)](LICENSE) [![Release](https://img.shields.io/github/v/release/loootai/looot-lookalike)](https://github.com/loootai/looot-lookalike/releases) [![Docs](https://img.shields.io/badge/docs-docs.looot.ai-12A06A)](https://docs.looot.ai)
 
 An open-source alternative to Ocean.io style lookalike company search. Give it 3 to 20 domains of your best customers. It enriches them through looot, derives what they share (industry, size, technology, keywords, region), searches for similar companies with looot's company search providers, scores each result with a breakdown you can read, and returns a ranked list. You can edit the shared traits and the ranking updates without another paid call.
 
-Ocean.io's own pricing page refused automated reading on 2026-10-10 (HTTP 403). Review sites list its plans from $79 a month, and one 2026 source quotes about $32 a month billed yearly, so check Ocean's page before you compare. looot-lookalike has no subscription. A run costs the list price of its calls, shown before it starts.
+Ocean.io's own pricing page refused automated reading on 2026-10-10 (HTTP 403). Third-party estimates from review sites run from about $32 to $79 a month. None of them is an Ocean figure, so check Ocean's page before you compare. looot-lookalike has no subscription. A run costs the list price of its calls, shown before it starts.
 
 ![Seeds, shared traits and ranked results, dark](docs/screenshots/results-dark.png)
 ![Seeds and shared traits, light](docs/screenshots/home-light.png)
@@ -104,3 +108,20 @@ npm run leak-scan
 ## Licence
 
 MIT. Copyright looot.
+
+## Related
+
+Other open-source projects built on [looot](https://looot.ai):
+
+- [looot-intent](https://github.com/loootai/looot-intent): account intent and buying-stage scoring (6sense)
+- [looot-score](https://github.com/loootai/looot-score): lead and ICP fit scoring (MadKudu)
+- [looot-reveal](https://github.com/loootai/looot-reveal): which companies visit your site (RB2B, Clearbit Reveal)
+- [looot-techstack](https://github.com/loootai/looot-techstack): website technologies from several providers (BuiltWith, Wappalyzer)
+- [looot-signals](https://github.com/loootai/looot-signals): hiring, funding and news triggers (TheirStack, Harmonic)
+- [looot-ads](https://github.com/loootai/looot-ads): competitor ad board (Foreplay)
+- [looot-reviews](https://github.com/loootai/looot-reviews): review themes and weak spots (ReviewTrackers)
+- [looot-battlecards](https://github.com/loootai/looot-battlecards): competitor battlecards (Klue, Crayon)
+- [looot-mentions](https://github.com/loootai/looot-mentions): brand and keyword listening (Brand24)
+- [looot-crm](https://github.com/loootai/looot-crm): a small CRM with buying signals built in
+- [looot-seo](https://github.com/loootai/looot-seo): self-hosted SEO workspace
+- [looot-monitor](https://github.com/loootai/looot-monitor): brand and competitor monitoring with alerts
