@@ -21,7 +21,7 @@ export default async function ScoringPage() {
   const session = await getSession();
   const total = Object.values(cfg.weights).reduce((a, b) => a + b, 0);
   return (
-    <div className="mx-auto max-w-4xl px-4 pb-16 pt-6 md:px-6">
+    <div className="max-w-4xl">
       <h1 className="text-20 font-medium tracking-tight">Scoring and spend</h1>
       <p className="mt-1 text-13 text-mute">The weights live in a file you edit (weights.yaml, copied from weights.example.yaml). A signal with no data is left out and the rest are scaled up to fill 100, so a thin record is marked with its coverage, not scored as a miss.</p>
 

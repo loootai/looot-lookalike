@@ -89,7 +89,7 @@ export function Workbench({ demo, initialSession, initialRanked, defaultSeeds, o
   const hasCandidates = (session?.candidates.length ?? 0) > 0;
 
   return (
-    <div className="mx-auto max-w-5xl px-4 pb-20 pt-6 md:px-6">
+    <div className="max-w-5xl">
       <header className="mb-5">
         <h1 className="text-20 font-medium tracking-tight">Lookalike companies</h1>
         <p className="mt-1 text-13 text-mute">Give 3 to 20 of your best customers. The app finds what they share, searches for companies like them, and explains every score.</p>
@@ -102,7 +102,7 @@ export function Workbench({ demo, initialSession, initialRanked, defaultSeeds, o
       ) : null}
 
       <section aria-labelledby="seeds-h" className="rounded-panel border border-line bg-panel p-4">
-        <h2 id="seeds-h" className="text-14 font-medium">1. Seeds</h2>
+        <h2 id="seeds-h" className="scroll-mt-20 text-14 font-medium">1. Seeds</h2>
         <label htmlFor="seeds" className="mt-2 block text-12 text-mute">
           Domains, one per line or comma separated
         </label>
