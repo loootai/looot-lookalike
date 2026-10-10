@@ -8,6 +8,10 @@
 - Price only: `npm run lookalike -- --domains a.com,b.com,c.com --dry-run`
 - Real run: `LOOOT_TOKEN=... npm run lookalike -- --seeds seeds.txt --cap 1 --out results-out`
 
+## Setup
+
+Node 22.12 or newer. `npm install --ignore-scripts`. The CLI reads `LOOOT_TOKEN` from the shell, not from .env.local (create a token in looot Settings, Agent tokens; a funded balance is needed for real runs). Copy weights.example.yaml to weights.yaml. examples/seeds.txt shows the seeds format. See README headings What you need, Run it with your own data, Weights file, Spending, Troubleshooting.
+
 ## Files
 
 - weights.example.yaml: scoring weights and options

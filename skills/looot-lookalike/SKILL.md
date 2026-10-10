@@ -7,7 +7,8 @@ description: Find companies similar to a user's best customers through looot, wi
 
 Input is 3 to 20 seed domains. Output is a ranked list where each score lists its signals, weights, providers and row costs.
 
-1. Check `LOOOT_TOKEN` is set. If not, tell the user to create an agent token at https://looot.ai/settings. Do not ask them to paste it into chat.
+0. Needs Node 22.12 or newer and `npm install --ignore-scripts`. The CLI reads `LOOOT_TOKEN` from the shell, not from `.env.local`. `examples/seeds.txt` shows the seeds format. See the README headings What you need and Troubleshooting.
+1. Check `LOOOT_TOKEN` is set. If not, tell the user to create an agent token in their looot Settings, Agent tokens. Do not ask them to paste it into chat.
 2. Show the price first: `npm run lookalike -- --domains a.com,b.com,c.com --dry-run`. Report the total. Ask for a go-ahead when it is above $0.50.
 3. Run it with a cap: `npm run lookalike -- --domains a.com,b.com,c.com --cap 1 --out results-out`. A seeds file works too: `--seeds seeds.txt`.
 4. Read the `.md` file in `results-out/`. Report the shared traits first, so the user can correct them, then the top 10 with their "why similar" lines and the amount spent.
