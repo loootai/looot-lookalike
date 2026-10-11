@@ -3,6 +3,7 @@ import { Badge, Table, Td, Th } from "@/components/ui/misc";
 import { usd, usdPrecise } from "@/lib/money";
 import { getConfig, getSession } from "@/lib/service";
 import { ALL_ENDPOINTS, PRICES_AS_OF } from "@/lib/sources";
+import { requireAdminPage } from "@/lib/auth/guard";
 
 export const metadata: Metadata = { title: "Scoring and spend" };
 export const dynamic = "force-dynamic";
@@ -17,6 +18,7 @@ const WHAT: Record<string, string> = {
 };
 
 export default async function ScoringPage() {
+  await requireAdminPage();
   const cfg = getConfig();
   const session = await getSession();
   const total = Object.values(cfg.weights).reduce((a, b) => a + b, 0);

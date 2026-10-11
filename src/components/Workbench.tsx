@@ -11,6 +11,7 @@ import { usd, usdPrecise } from "@/lib/money";
 import type { QuoteBody } from "@/lib/service";
 import type { Scored, Session, TraitValue, Traits } from "@/lib/types";
 import { cn } from "@/lib/utils";
+import { adminFetch } from "@/components/adminFetch";
 
 interface Props {
   demo: boolean;
@@ -45,7 +46,7 @@ export function Workbench({ demo, initialSession, initialRanked, defaultSeeds, o
     setError(null);
     setQuote(null);
     setPendingStep(step);
-    const res = await fetch("/api/quote", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ step, seeds: seedsText }) });
+    const res = await adminFetch("/api/quote", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ step, seeds: seedsText }) });
     const body = (await res.json()) as QuoteBody & { error?: string };
     if (!res.ok) {
       setError(body.error ?? "Could not read the prices.");
@@ -58,7 +59,7 @@ export function Workbench({ demo, initialSession, initialRanked, defaultSeeds, o
   const confirm = async () => {
     if (!quote) return;
     setBusy(true);
-    const res = await fetch(pendingStep === "seeds" ? "/api/seeds" : "/api/search", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ seeds: seedsText, confirmedMaxMicros: quote.totalMicros }) });
+    const res = await adminFetch(pendingStep === "seeds" ? "/api/seeds" : "/api/search", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ seeds: seedsText, confirmedMaxMicros: quote.totalMicros }) });
     const body = (await res.json()) as { session?: Session; ranked?: Scored[]; error?: string };
     setBusy(false);
     dialog.current?.close();
@@ -76,7 +77,7 @@ export function Workbench({ demo, initialSession, initialRanked, defaultSeeds, o
     setTraits(next);
     window.clearTimeout(timer.current);
     timer.current = window.setTimeout(async () => {
-      const res = await fetch("/api/score", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(next) });
+      const res = await adminFetch("/api/score", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(next) });
       const body = (await res.json()) as { ranked?: Scored[]; error?: string };
       if (res.ok && body.ranked) {
         setRanked(body.ranked);

@@ -2,6 +2,8 @@
 
 # looot-lookalike
 
+> **Security notice.** Versions 0.1.2 and older had no admin sign-in. Anyone who could reach a deployed instance could spend your looot balance through the search steps, change the saved traits, and download the ranked list and the seed accounts. If you run 0.1.2 or older on a reachable host, upgrade to 0.1.3 and set `LOOKALIKE_ADMIN_PASSWORD`. See [Securing a deployment](#securing-a-deployment).
+
 [![License](https://img.shields.io/github/license/loootai/looot-lookalike)](LICENSE) [![Release](https://img.shields.io/github/v/release/loootai/looot-lookalike)](https://github.com/loootai/looot-lookalike/releases) [![Docs](https://img.shields.io/badge/docs-docs.looot.ai-12A06A)](https://docs.looot.ai)
 
 An open-source alternative to Ocean.io style lookalike company search. Give it 3 to 20 domains of your best customers. It enriches them through looot, derives what they share (industry, size, technology, keywords, region), searches for similar companies with looot's company search providers, scores each result with a breakdown you can read, and returns a ranked list. You can edit the shared traits and the ranking updates without another paid call.
@@ -31,7 +33,7 @@ npm run demo                                  # web UI on http://localhost:3230
 npm run lookalike -- --demo --out results-out
 ```
 
-The demo uses made-up companies on the reserved `.example` domain. The CLI demo prints "16 ranked companies from 16 candidates. Spent $0.10 of $1.00." and writes `.json`, `.csv` and `.md` files to `results-out/`.
+The demo has no sign-in and shows a "Demo, no sign-in" badge. It refuses to start if `LOOOT_TOKEN` is set or a session file exists, unless you also set an admin password. It uses made-up companies on the reserved `.example` domain. The CLI demo prints "16 ranked companies from 16 candidates. Spent $0.10 of $1.00." and writes `.json`, `.csv` and `.md` files to `results-out/`.
 
 ## Run it with your own data
 
@@ -47,6 +49,10 @@ The web app reads `.env.local`. The CLI reads only the shell environment.
 |---|---|---|---|
 | `LOOOT_TOKEN` | Required for real runs, not for `--dry-run`, `--demo` or the demo UI | Bearer token for the looot API | Settings, Agent tokens in the looot app, or `looot login` |
 | `LOOOT_API_URL` | Optional | looot API base URL used to read live prices. Default `https://api.looot.ai` | Leave unset |
+| `LOOKALIKE_ADMIN_PASSWORD` | Required outside the demo | Admin password, 12 characters or more. Without it the admin pages and API are closed and `/login` shows a setup page. | Choose one |
+| `LOOKALIKE_ADMIN_PASSWORD_HASH` | Alternative | `scrypt$salt$key` instead of the plain password. Wins if both are set. | `npm run hash-password -- 'your password'` |
+| `LOOKALIKE_SESSION_SECRET` | Optional | Key that signs session cookies. Default: derived from the password. | Leave unset, or a long random string |
+| `LOOKALIKE_COOKIE_SECURE` | Optional | Set `0` to drop the Secure flag in production, only for plain-http testing. | Leave unset |
 | `LOOKALIKE_CAP_USD` | Optional | Most one web UI action (enrich seeds, search) may spend. Default 1. The CLI uses `--cap` instead | A dollar amount you choose |
 | `LOOKALIKE_WEIGHTS` | Optional | Weights file the web app reads. Default `weights.yaml`, else `weights.example.yaml` | A path you choose |
 | `LOOKALIKE_SESSION` | Optional | File where the web app keeps the current session. Default `data/session.json` | A path you choose |
@@ -84,7 +90,7 @@ CLI options are `--seeds <file>` or `--domains a,b,c`, `--weights`, `--out`, `--
 ## Spending
 
 - The quote is shown before any paid action. In the CLI it is `--dry-run`. In the UI it is a price dialog that sends back the amount you confirmed. If the live price is higher, nothing is called.
-- One cap covers a CLI run (`--cap`, default $1). The web UI applies `LOOKALIKE_CAP_USD` (default $1) to each step. A call that would cross it is skipped and listed as `skipped_budget`.
+- One cap covers a CLI run (`--cap`, default $1). The web UI applies `LOOKALIKE_CAP_USD` (default $1) to each step. The server takes the lower of that cap and the total you confirmed, so a larger number in a request changes nothing. A session can start 6 paid steps per 10 minutes. A call that would cross it is skipped and listed as `skipped_budget`.
 - Typical run at list price. 6 seeds and 50 rows from each source cost at most $0.2138. Ten seeds cost at most $0.253. `enrichTop: 10` adds up to $0.098. The sample run reads $0.10 because the sources returned fewer than 50 rows. No real run was priced.
 - Failed calls are not charged by looot.
 - Every call has a stable `idempotencyKey` made from the step, the endpoint, a hash of the input and the month. Repeating a lookup in the same month replays the stored run and does not charge twice.
@@ -142,9 +148,56 @@ Prices are looot list prices from the public catalog, read on 2026-10-10.
 
 A typical run, 6 seeds and 50 rows from each source, is at most $0.2138 at list price. Ten seeds is at most $0.253. `enrichTop: 10` adds up to $0.098. The sample run reads $0.10 because the sources returned fewer than 50 rows. No real run was priced.
 
+## Securing a deployment
+
+Versions 0.1.2 and older had no admin authentication. From 0.1.3 every route is either public on purpose or admin, and the admin routes are closed unless you set a password.
+
+### What is public and what is admin
+
+Pages and routes were listed from `src/app` and classified. A test reads the folder and fails if a route is missing from `src/lib/auth/routes.ts` or if an admin route does not call the gate.
+
+| Kind | Count | Routes |
+|---|---|---|
+| Public | 4 | `/login`, `/api/auth/login`, `/api/auth/logout`, `/api/health` |
+| Admin pages | 2 | `/` (workbench), `/scoring` |
+| Admin API | 5 | `/api/seeds` (paid), `/api/search` (paid), `/api/quote`, `/api/score`, `/api/export` (the ranked list as CSV) |
+
+Any path not listed is treated as admin.
+
+### How it works
+
+- Set `LOOKALIKE_ADMIN_PASSWORD` (12 characters or more) or `LOOKALIKE_ADMIN_PASSWORD_HASH` (from `npm run hash-password -- 'your password'`). Without one, admin routes answer 503, admin pages go to `/login`, and `/login` says what to set.
+- `src/proxy.ts` checks every request. Each admin page, the root layout and each admin route handler checks again with the same function, so a path the matcher misses is still closed.
+- Sign-in compares the password in constant time. A session is a signed token in an httpOnly, SameSite=Lax cookie, Secure in production, valid for 8 hours. 5 wrong passwords from one address lock that address for 15 minutes. 40 wrong passwords from anywhere lock sign-in for everyone for 15 minutes.
+- Every state-changing admin request needs a same-origin `Origin` header and the per-session token in `x-lookalike-csrf`. The layout puts the token in a meta tag and the app's own calls send it.
+- A paid step (`/api/seeds`, `/api/search`) needs the session and the CSRF token. It must carry the total the caller confirmed. The server prices the step again and refuses if the live price is higher. The step runs under the lower of that total and `LOOKALIKE_CAP_USD`, and a session can start 6 paid steps per 10 minutes.
+- Admin responses carry `Cache-Control: no-store`. All responses carry a Content-Security-Policy (`frame-ancestors 'none'`), `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff` and `Referrer-Policy: no-referrer`. The CSP allows inline scripts because Next.js needs them.
+- The demo (`npm run demo`) has no sign-in and shows a "Demo, no sign-in" badge. It refuses to start next to a `LOOOT_TOKEN` or a data file unless an admin password is set.
+
+### Set it up
+
+```bash
+export LOOKALIKE_ADMIN_PASSWORD='a password of 12 or more characters'
+# or keep it out of the environment as plain text:
+npm run hash-password -- 'a password of 12 or more characters'   # prints LOOKALIKE_ADMIN_PASSWORD_HASH=...
+npm run build && npm start
+```
+
+A shared password is the floor. For anything people other than you can reach, put the app behind a VPN, a private network or an identity-aware proxy (Cloudflare Access, Tailscale, Google IAP, oauth2-proxy), and leave only the public routes in the table above reachable from the internet. Keep the app's password on as well. The rate limits are in memory, so behind several instances also limit at the proxy.
+
+### What changes when you upgrade
+
+- The web app asks for the password. Set `LOOKALIKE_ADMIN_PASSWORD` before you start 0.1.3, or the admin pages stay closed.
+- The caller cannot raise the cap. It was already `LOOKALIKE_CAP_USD`, and that stays the ceiling.
+- Scripts that call the API directly now need to sign in first and send the CSRF header.
+
+### Not covered
+
+One admin, no per-user accounts or roles. The CLI has no sign-in: it runs as you on your machine and reads the same files.
+
 ## Deploy
 
-There is no `vercel.json` and no GitHub workflow in this repo. The web app keeps its session in a JSON file on disk (`data/session.json`, or `LOOKALIKE_SESSION`), so it needs a host with a writable, persistent disk. I have not deployed it. On such a host run `npm ci --ignore-scripts && npm run build && npm start` and set `LOOOT_TOKEN` (and the optional variables) in the host environment. There is no sign-in, so put it behind your own access control. The CLI needs no host. Run it where you have Node.
+There is no `vercel.json` and no GitHub workflow in this repo. The web app keeps its session in a JSON file on disk (`data/session.json`, or `LOOKALIKE_SESSION`), so it needs a host with a writable, persistent disk. I have not deployed it. On such a host run `npm ci --ignore-scripts && npm run build && npm start` and set `LOOOT_TOKEN` (and the optional variables) in the host environment. Set `LOOKALIKE_ADMIN_PASSWORD` too, serve it over HTTPS, and read [Securing a deployment](#securing-a-deployment). Without the password the app serves no admin page. The CLI needs no host. Run it where you have Node.
 
 ## Troubleshooting
 

@@ -4,7 +4,7 @@
 
 ## Run
 
-- Demo, no token: `npm run demo` (web UI on http://localhost:3230) or `npm run lookalike -- --demo`
+- Demo, no token: `npm run demo` (web UI on http://localhost:3230, no sign-in; the web app outside the demo needs LOOKALIKE_ADMIN_PASSWORD, 12+ characters) or `npm run lookalike -- --demo`
 - Price only: `npm run lookalike -- --domains a.com,b.com,c.com --dry-run`
 - Real run: `LOOOT_TOKEN=... npm run lookalike -- --seeds seeds.txt --cap 1 --out results-out`
 

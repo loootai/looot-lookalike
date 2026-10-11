@@ -12,6 +12,7 @@ import { enrichCandidates } from "./engine";
 import { rank, runPipeline } from "./pipeline";
 import { FALLBACK_PRICES, fetchPrices } from "./prices";
 import type { Scored, Session, Traits } from "./types";
+import { allow, retryAfter } from "./auth/limits";
 
 const g = globalThis as unknown as { __lookalikeDemo?: Session };
 const SESSION_FILE = () => resolve(/*turbopackIgnore: true*/ process.env.LOOKALIKE_SESSION ?? "data/session.json");
@@ -25,6 +26,18 @@ export function getConfig(): LookalikeConfig {
 /** Most one action may spend, in dollars. LOOKALIKE_CAP_USD changes it. */
 export function capMicros(): number {
   return toMicros(process.env.LOOKALIKE_CAP_USD ?? "1");
+}
+
+/** Paid steps one session may start in a window. */
+export const SPEND_STEPS_PER_WINDOW = 6;
+export const SPEND_WINDOW_MS = 10 * 60_000;
+
+export class SpendLimitError extends Error {}
+
+/** Throws when this session has started too many paid steps. Counts one. */
+function limitSpend(sid: string | undefined): void {
+  const key = `spend:${sid ?? "demo"}`;
+  if (!allow(key, SPEND_STEPS_PER_WINDOW, SPEND_WINDOW_MS)) throw new SpendLimitError(`Too many paid steps from this session. Try again in ${retryAfter(key)} seconds.`);
 }
 
 async function save(s: Session): Promise<void> {
@@ -94,7 +107,8 @@ async function context(confirmedMaxMicros: number, total: number): Promise<Ctx |
 export type StepResult = { ok: true; session: Session } | { ok: false; code: "blocked_price" | "no_token" | "input"; message: string };
 
 /** Step 1. Enriches the seeds and derives the traits. Starts a new session. Refused when the live price is above what the user confirmed. */
-export async function runSeeds(seedsText: string, confirmedMaxMicros: number): Promise<StepResult> {
+export async function runSeeds(seedsText: string, confirmedMaxMicros: number, sid?: string): Promise<StepResult> {
+  limitSpend(sid);
   let seeds: string[];
   try {
     seeds = parseSeeds(seedsText);
@@ -111,7 +125,8 @@ export async function runSeeds(seedsText: string, confirmedMaxMicros: number): P
 }
 
 /** Step 2. Searches every source and (when configured) enriches the top candidates. */
-export async function runSearch(confirmedMaxMicros: number): Promise<StepResult> {
+export async function runSearch(confirmedMaxMicros: number, sid?: string): Promise<StepResult> {
+  limitSpend(sid);
   const cfg = getConfig();
   const session = await getSession();
   if (!session?.traits) return { ok: false, code: "input", message: "Enrich the seeds first." };
