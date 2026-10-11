@@ -5,14 +5,15 @@ import { FixtureRunner } from "@/demo/fixtureRunner";
 import { DEMO_SEEDS } from "@/demo/fixtures";
 import { IS_DEMO, now } from "./clock";
 import { parseConfig, type LookalikeConfig } from "./config";
-import { emptySession, enrichSeeds, InputError, parseSeeds, planEnrich, planSearch, planSeeds, planTotal, searchSimilar, type Ctx, type PlannedCall } from "./engine";
+import { callFingerprint, emptySession, enrichSeeds, InputError, parseSeeds, planEnrich, planSearch, planSeeds, planTotal, searchSimilar, type Ctx, type PlannedCall } from "./engine";
 import { loootFromEnv } from "./looot";
-import { toMicros } from "./money";
 import { enrichCandidates } from "./engine";
 import { rank, runPipeline } from "./pipeline";
 import { FALLBACK_PRICES, fetchPrices } from "./prices";
 import type { Scored, Session, Traits } from "./types";
 import { allow, retryAfter } from "./auth/limits";
+import { Budget, type BudgetStatus } from "./budget";
+import { toMicros, usd } from "./money";
 
 const g = globalThis as unknown as { __lookalikeDemo?: Session };
 const SESSION_FILE = () => resolve(/*turbopackIgnore: true*/ process.env.LOOKALIKE_SESSION ?? "data/session.json");
@@ -26,6 +27,24 @@ export function getConfig(): LookalikeConfig {
 /** Most one action may spend, in dollars. LOOKALIKE_CAP_USD changes it. */
 export function capMicros(): number {
   return toMicros(process.env.LOOKALIKE_CAP_USD ?? "1");
+}
+
+/** The period budget file, next to the session file. */
+export function getBudget(): Budget {
+  return new Budget();
+}
+
+/** Used, reserved and remaining for today and this month. */
+export async function budgetStatus(now: Date = new Date()): Promise<BudgetStatus> {
+  return getBudget().status(now);
+}
+
+/** Owner only (the route checks the session and the CSRF token). Saves the daily and monthly budget in dollars. */
+export async function setBudget(input: { dailyUsd: unknown; monthlyUsd: unknown }): Promise<BudgetStatus> {
+  if (IS_DEMO) throw new Error("Demo mode has no budget to change.");
+  const b = getBudget();
+  await b.setLimits({ dailyMicros: toMicros(Number(input.dailyUsd)), monthlyMicros: toMicros(Number(input.monthlyUsd)) });
+  return b.status();
 }
 
 /** Paid steps one session may start in a window. */
@@ -76,35 +95,55 @@ export interface QuoteBody {
   priceSource: string;
 }
 
+async function planStep(step: QuoteBody["step"], seedsText: string | undefined, prices: Record<string, number>): Promise<PlannedCall[]> {
+  const cfg = getConfig();
+  if (step === "seeds") return planSeeds(parseSeeds(seedsText ?? ""), cfg, prices, now());
+  const s = await getSession();
+  const usable = s?.seedResults.filter((r) => r.company).map((r) => r.domain) ?? [];
+  if (usable.length < 2) throw new InputError("Enrich the seeds first.");
+  const calls = [...planSearch(usable, cfg, prices, now())];
+  if (cfg.enrichTop > 0) calls.push(...planEnrich(usable.slice(0, cfg.enrichTop), cfg, prices, now()));
+  return calls;
+}
+
 /** What a step would cost right now, from live catalog prices. Free, no token. */
 export async function quote(step: QuoteBody["step"], seedsText?: string): Promise<QuoteBody> {
-  const cfg = getConfig();
   const priced = await fetchPrices(undefined, { demo: IS_DEMO });
-  let calls: PlannedCall[];
-  if (step === "seeds") calls = planSeeds(parseSeeds(seedsText ?? ""), cfg, priced.prices, now());
-  else {
-    const s = await getSession();
-    const usable = s?.seedResults.filter((r) => r.company).map((r) => r.domain) ?? [];
-    if (usable.length < 2) throw new InputError("Enrich the seeds first.");
-    calls = [...planSearch(usable, cfg, priced.prices, now())];
-    if (cfg.enrichTop > 0) calls.push(...planEnrich(usable.slice(0, cfg.enrichTop), cfg, priced.prices, now()));
-  }
+  const calls = await planStep(step, seedsText, priced.prices);
   return { step, calls: calls.map((c) => ({ endpointId: c.endpointId, label: c.label, quotedMicros: c.quotedMicros })), totalMicros: planTotal(calls), capMicros: capMicros(), pricesAsOf: priced.pricesAsOf, priceSource: priced.source };
 }
 
-async function context(confirmedMaxMicros: number, total: number): Promise<Ctx | { error: string; code: "blocked_price" | "no_token" }> {
+type StepCode = "blocked_price" | "no_token" | "budget";
+
+async function context(confirmedMaxMicros: number, calls: PlannedCall[]): Promise<Ctx | { error: string; code: StepCode }> {
+  const total = planTotal(calls);
   if (total > confirmedMaxMicros) return { code: "blocked_price", error: `The price is now ${total} micro-dollars, above the ${confirmedMaxMicros} you confirmed. Nothing was called.` };
   const priced = await fetchPrices(undefined, { demo: IS_DEMO });
   const base = { prices: priced.prices, unpriced: priced.unread, capMicros: Math.min(capMicros(), confirmedMaxMicros), now: now() };
   if (IS_DEMO) return { ...base, looot: new FixtureRunner() };
+  let looot;
   try {
-    return { ...base, looot: loootFromEnv() };
+    looot = loootFromEnv();
   } catch {
     return { code: "no_token", error: "LOOOT_TOKEN is not set on the server." };
   }
+  // Check order: quote, per-run cap (above and in the engine), period budget, then the calls. Runs that ended since last time settle first.
+  const budget = getBudget();
+  await budget.reconcile(looot);
+  const room = await budget.status();
+  const session = await getSession();
+  let needed = 0;
+  for (const c of calls) {
+    const stored = await budget.recall(c.idempotencyKey, callFingerprint(c.endpointId, c.input), base.now);
+    if (!stored && !session?.pending[c.idempotencyKey]) needed += c.quotedMicros;
+  }
+  if (needed > room.remainingMicros) {
+    return { code: "budget", error: `The quote (${usd(needed)}) is above what is left of the budget (${usd(room.remainingMicros)}: ${usd(room.day.remainingMicros)} today, ${usd(room.month.remainingMicros)} this month). Nothing was called. Raise the budget on the Costs page, or wait for the period to roll over.` };
+  }
+  return { ...base, looot, ledger: budget };
 }
 
-export type StepResult = { ok: true; session: Session } | { ok: false; code: "blocked_price" | "no_token" | "input"; message: string };
+export type StepResult = { ok: true; session: Session } | { ok: false; code: StepCode | "input"; message: string };
 
 /** Step 1. Enriches the seeds and derives the traits. Starts a new session. Refused when the live price is above what the user confirmed. */
 export async function runSeeds(seedsText: string, confirmedMaxMicros: number, sid?: string): Promise<StepResult> {
@@ -117,7 +156,7 @@ export async function runSeeds(seedsText: string, confirmedMaxMicros: number, si
   }
   const cfg = getConfig();
   const priced = await fetchPrices(undefined, { demo: IS_DEMO });
-  const ctx = await context(confirmedMaxMicros, planTotal(planSeeds(seeds, cfg, priced.prices, now())));
+  const ctx = await context(confirmedMaxMicros, planSeeds(seeds, cfg, priced.prices, now()));
   if ("error" in ctx) return { ok: false, code: ctx.code, message: ctx.error };
   const session = await enrichSeeds(emptySession(seeds, ctx.now), cfg, ctx);
   await save(session);
@@ -130,8 +169,8 @@ export async function runSearch(confirmedMaxMicros: number, sid?: string): Promi
   const cfg = getConfig();
   const session = await getSession();
   if (!session?.traits) return { ok: false, code: "input", message: "Enrich the seeds first." };
-  const q = await quote("search");
-  const ctx = await context(confirmedMaxMicros, q.totalMicros);
+  const priced = await fetchPrices(undefined, { demo: IS_DEMO });
+  const ctx = await context(confirmedMaxMicros, await planStep("search", undefined, priced.prices));
   if ("error" in ctx) return { ok: false, code: ctx.code, message: ctx.error };
   let next = await searchSimilar({ ...session, candidates: [] }, cfg, ctx);
   if (cfg.enrichTop > 0) {

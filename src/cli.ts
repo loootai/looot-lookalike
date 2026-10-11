@@ -6,6 +6,7 @@ import { join, resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { FixtureRunner } from "@/demo/fixtureRunner";
 import { DEMO_SEEDS } from "@/demo/fixtures";
+import { Budget } from "@/lib/budget";
 import { ConfigError, parseConfig } from "@/lib/config";
 import { InputError, parseSeeds } from "@/lib/engine";
 import { toCsv, toMarkdown } from "@/lib/export";
@@ -23,10 +24,13 @@ const HELP = `Usage: npm run lookalike -- (--seeds <file> | --domains <a,b,c>) [
   --out <dir>        Where results go. Default: results-out
   --top <n>          Entries in the markdown report. Default: 25
   --cap <usd>        Most the whole run may spend. Default: 1.00
+  --partial          Run until the cap or the period budget is reached, even when the quote is above what is left
   --dry-run          Print the calls and the list-price cost. Makes no call and writes nothing.
   --demo             Use the bundled sample companies. No token, no network.
 
-Needs LOOOT_TOKEN in the environment, except with --dry-run or --demo.`;
+Needs LOOOT_TOKEN in the environment, except with --dry-run or --demo.
+The period budget (daily and monthly) lives in data/budget.json next to the web app's session file. LOOKALIKE_DAILY_USD and
+LOOKALIKE_MONTHLY_USD set the starting amounts (default 10 and 50) until the owner saves new ones in the web UI.`;
 
 function fail(message: string, code = 1): never {
   console.error(message);
@@ -36,7 +40,7 @@ function fail(message: string, code = 1): never {
 async function main(): Promise<void> {
   let args;
   try {
-    args = parseArgs({ options: { seeds: { type: "string" }, domains: { type: "string" }, weights: { type: "string" }, out: { type: "string", default: "results-out" }, top: { type: "string", default: "25" }, cap: { type: "string", default: "1" }, "dry-run": { type: "boolean", default: false }, demo: { type: "boolean", default: false }, help: { type: "boolean", default: false } } }).values;
+    args = parseArgs({ options: { seeds: { type: "string" }, domains: { type: "string" }, weights: { type: "string" }, out: { type: "string", default: "results-out" }, top: { type: "string", default: "25" }, cap: { type: "string", default: "1" }, "dry-run": { type: "boolean", default: false }, demo: { type: "boolean", default: false }, partial: { type: "boolean", default: false }, help: { type: "boolean", default: false } } }).values;
   } catch (e) {
     fail(`${(e as Error).message}\n\n${HELP}`, 2);
   }
@@ -95,9 +99,18 @@ async function main(): Promise<void> {
   const plan = planPipeline(seeds, cfg, prices, now);
   print(plan.calls, plan.totalMicros, args.demo ? "demo, no charge" : unpriced.length > 0 ? `live prices; unread: ${unpriced.join(", ")}` : "live prices from the looot catalog");
 
+  // Check order: quote, per-run cap, period budget, then the calls. Runs that ended since last time settle first.
+  const budget = args.demo ? undefined : new Budget();
+  if (budget && "getRun" in looot) {
+    await budget.reconcile(looot);
+    const room = await budget.status();
+    console.log(`Budget left: ${usd(room.remainingMicros)} (${usd(room.day.remainingMicros)} today, ${usd(room.month.remainingMicros)} this month, ${usd(room.day.reservedMicros)} reserved).`);
+    if (plan.totalMicros > room.remainingMicros && !args.partial) fail("Refused: the quote is above what is left of the period budget. Wait for the period to roll over, raise the budget on the Costs page of the web UI, or pass --partial to run until it is reached.", 2);
+  }
+
   let result;
   try {
-    result = await runPipeline(seeds, cfg, { looot, prices, unpriced, capMicros, now });
+    result = await runPipeline(seeds, cfg, { looot, prices, unpriced, capMicros, now, ledger: budget });
   } catch (e) {
     if (e instanceof InputError) fail(e.message, 1);
     throw e;

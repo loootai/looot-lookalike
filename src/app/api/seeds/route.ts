@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { checkAdmin, denied, requireAdminRoute } from "@/lib/auth/guard";
+import { budgetFieldError } from "@/lib/budget";
 import { getRanked, runSeeds, SpendLimitError } from "@/lib/service";
 
 export const dynamic = "force-dynamic";
@@ -12,6 +13,8 @@ export async function POST(req: Request) {
   if (!check.ok) return denied(check);
   const b = (await req.json().catch(() => null)) as { seeds?: unknown; confirmedMaxMicros?: unknown } | null;
   if (typeof b?.seeds !== "string" || typeof b.confirmedMaxMicros !== "number" || !(b.confirmedMaxMicros > 0)) return NextResponse.json({ error: "seeds and confirmedMaxMicros are required." }, { status: 400 });
+  const refused = budgetFieldError(b);
+  if (refused) return NextResponse.json({ error: refused }, { status: 400 });
   try {
     const r = await runSeeds(b.seeds, b.confirmedMaxMicros, check.sid);
     if (!r.ok) return NextResponse.json({ error: r.message, code: r.code }, { status: r.code === "input" ? 422 : r.code === "no_token" ? 503 : 409 });

@@ -1,6 +1,6 @@
 {
   "name": "looot-lookalike",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "description": "Open-source lookalike company search from seed domains, with an explainable score. Next.js and looot.",
   "license": "MIT",
   "private": true,

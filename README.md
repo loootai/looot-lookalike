@@ -54,6 +54,8 @@ The web app reads `.env.local`. The CLI reads only the shell environment.
 | `LOOKALIKE_SESSION_SECRET` | Optional | Key that signs session cookies. Default: derived from the password. | Leave unset, or a long random string |
 | `LOOKALIKE_COOKIE_SECURE` | Optional | Set `0` to drop the Secure flag in production, only for plain-http testing. | Leave unset |
 | `LOOKALIKE_CAP_USD` | Optional | Most one web UI action (enrich seeds, search) may spend. Default 1. The CLI uses `--cap` instead | A dollar amount you choose |
+| `LOOKALIKE_DAILY_USD` | Optional | Starting daily budget in dollars, until the owner saves one on the Costs page. Default 10 | A dollar amount you choose |
+| `LOOKALIKE_MONTHLY_USD` | Optional | Starting monthly budget in dollars. Default 50 | A dollar amount you choose |
 | `LOOKALIKE_WEIGHTS` | Optional | Weights file the web app reads. Default `weights.yaml`, else `weights.example.yaml` | A path you choose |
 | `LOOKALIKE_SESSION` | Optional | File where the web app keeps the current session. Default `data/session.json` | A path you choose |
 | `NEXT_PUBLIC_DEMO` | Optional | `1` turns on demo mode. `npm run demo` sets it | Do not set it for real use |
@@ -89,12 +91,20 @@ CLI options are `--seeds <file>` or `--domains a,b,c`, `--weights`, `--out`, `--
 
 ## Spending
 
+Four limits stand between a request and a charge, checked in this order: the quote, the cap per step, the period budget, then the call.
+
 - The quote is shown before any paid action. In the CLI it is `--dry-run`. In the UI it is a price dialog that sends back the amount you confirmed. If the live price is higher, nothing is called.
 - One cap covers a CLI run (`--cap`, default $1). The web UI applies `LOOKALIKE_CAP_USD` (default $1) to each step. The server takes the lower of that cap and the total you confirmed, so a larger number in a request changes nothing. A session can start 6 paid steps per 10 minutes. A call that would cross it is skipped and listed as `skipped_budget`.
 - Typical run at list price. 6 seeds and 50 rows from each source cost at most $0.2138. Ten seeds cost at most $0.253. `enrichTop: 10` adds up to $0.098. The sample run reads $0.10 because the sources returned fewer than 50 rows. No real run was priced.
 - Failed calls are not charged by looot.
-- Every call has a stable `idempotencyKey` made from the step, the endpoint, a hash of the input and the month. Repeating a lookup in the same month replays the stored run and does not charge twice.
+- The period budget caps all steps together: a daily and a monthly amount (UTC), $10 and $50 until you change them. The owner changes them on the Costs page of the web UI, or sets the starting values with `LOOKALIKE_DAILY_USD` and `LOOKALIKE_MONTHLY_USD`. A request to `/api/seeds` or `/api/search` cannot carry a budget: a request with a budget field is refused with a 400 and nothing is called. The CLI refuses a run whose quote is above what is left, unless you pass `--partial`.
+- Before each paid call the app reserves its list price in `budget.json` (next to the session file), under a lock file, and skips the call if used plus reserved plus the price would pass the daily or the monthly budget. Two requests started together cannot both pass. When the call ends the reservation becomes the real charge. A failed call releases it. A call still running at looot (`pending`) keeps its reservation: it is never recorded as failed at $0 and the budget is never handed back early. Reserved money counts against the budget until the call ends.
+- The next step looks up every pending call with `GET /v1/runs/{id}` and settles the ones that ended, to their real cost. If looot cannot be reached, or the app died before it got a run id, the reservation stays for 24 hours and is then released.
+- The sidebar and the Costs page show used, reserved and remaining for today and this month. At the budget the step is refused with a message that names the limit.
+- Every call has a stable `idempotencyKey` made from the step, the endpoint, a hash of the input and the month, and a finished call is stored under it. Repeating the same request in the same month is answered from the stored result: no call, no reservation, no charge. If the stored result is missing, looot replays the same key without charging again.
 - A call still running when waiting stops is `pending`, never failed. Its run id is stored and read again, free.
+- The looot token balance is the final limit. Fund a dedicated token with only what you are willing to spend, and keep the budget below it.
+- The budget lives in a file, so run one instance on a disk that persists. Several instances, or a serverless host with a throwaway disk, do not share it.
 - Calls are pinned to one endpoint with no provider fallback, so the price is the one quoted.
 - Editing traits and re-scoring makes no looot call.
 
@@ -159,8 +169,8 @@ Pages and routes were listed from `src/app` and classified. A test reads the fol
 | Kind | Count | Routes |
 |---|---|---|
 | Public | 4 | `/login`, `/api/auth/login`, `/api/auth/logout`, `/api/health` |
-| Admin pages | 2 | `/` (workbench), `/scoring` |
-| Admin API | 5 | `/api/seeds` (paid), `/api/search` (paid), `/api/quote`, `/api/score`, `/api/export` (the ranked list as CSV) |
+| Admin pages | 3 | `/` (workbench), `/scoring`, `/costs` (budget and cost) |
+| Admin API | 6 | `/api/seeds` (paid), `/api/search` (paid), `/api/quote`, `/api/score`, `/api/export` (the ranked list as CSV), `/api/budget` (read, and change the period budget) |
 
 Any path not listed is treated as admin.
 
@@ -171,6 +181,7 @@ Any path not listed is treated as admin.
 - Sign-in compares the password in constant time. A session is a signed token in an httpOnly, SameSite=Lax cookie, Secure in production, valid for 8 hours. 5 wrong passwords from one address lock that address for 15 minutes. 40 wrong passwords from anywhere lock sign-in for everyone for 15 minutes.
 - Every state-changing admin request needs a same-origin `Origin` header and the per-session token in `x-lookalike-csrf`. The layout puts the token in a meta tag and the app's own calls send it.
 - A paid step (`/api/seeds`, `/api/search`) needs the session and the CSRF token. It must carry the total the caller confirmed. The server prices the step again and refuses if the live price is higher. The step runs under the lower of that total and `LOOKALIKE_CAP_USD`, and a session can start 6 paid steps per 10 minutes.
+- The period budget (`PUT /api/budget`) is changed only by the signed-in owner, with the CSRF token. A paid step cannot raise it. See [Spending](#spending). The looot token balance is the final limit, so give the app a token funded with only what you are willing to spend.
 - Admin responses carry `Cache-Control: no-store`. All responses carry a Content-Security-Policy (`frame-ancestors 'none'`), `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff` and `Referrer-Policy: no-referrer`. The CSP allows inline scripts because Next.js needs them.
 - The demo (`npm run demo`) has no sign-in and shows a "Demo, no sign-in" badge. It refuses to start next to a `LOOOT_TOKEN` or a data file unless an admin password is set.
 

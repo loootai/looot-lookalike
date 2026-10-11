@@ -1,5 +1,5 @@
 import type { LucideIcon } from "lucide-react";
-import { Scale, Telescope } from "lucide-react";
+import { Scale, Telescope, Wallet } from "lucide-react";
 
 export type ShellNavItem = {
   href: string;
@@ -23,5 +23,6 @@ export const SHELL = {
   nav: <ShellNavItem[]>[
     { href: "/", label: "Lookalikes", title: "Lookalike companies", icon: Telescope, action: { label: "New search", href: "/#seeds-h" } },
     { href: "/scoring", label: "Scoring and spend", icon: Scale },
+    { href: "/costs", label: "Costs", title: "Costs and budget", icon: Wallet },
   ],
 };

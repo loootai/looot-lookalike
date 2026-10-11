@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+import type { Ledger } from "./budget";
 import type { LookalikeConfig } from "./config";
 import { LoootError, TERMINAL_STATUSES, type LoootRun, type LoootRunner } from "./looot";
 import { toMicros } from "./money";
@@ -70,6 +72,12 @@ export function planEnrich(domains: string[], cfg: LookalikeConfig, prices: Pric
   return domains.map((d) => call("enrich", def.endpointId, def.unit, 1, d, { domain: d }, prices, now, def.fallbackMicros));
 }
 
+/** Hash of what a paid call asks for: endpoint and input, with sorted keys and lowercased text. Guards the short idempotency key against a collision. */
+export function callFingerprint(endpointId: string, input: Record<string, unknown>): string {
+  const norm = (v: unknown): unknown => (typeof v === "string" ? v.trim().toLowerCase() : Array.isArray(v) ? v.map(norm) : v && typeof v === "object" ? Object.fromEntries(Object.entries(v).sort(([a], [b]) => (a < b ? -1 : 1)).map(([k, x]) => [k, norm(x)])) : v);
+  return createHash("sha256").update(JSON.stringify([endpointId, norm(input)])).digest("hex");
+}
+
 export const planTotal = (calls: PlannedCall[]) => calls.reduce((n, c) => n + c.quotedMicros, 0);
 
 export interface Ctx {
@@ -79,6 +87,8 @@ export interface Ctx {
   /** Most this action may spend, in micros. */
   capMicros: number;
   now: Date;
+  /** Period budget, reservations and stored answers. Left out in demo mode and in tests that do not need it. */
+  ledger?: Ledger;
 }
 
 interface Outcome {
@@ -96,31 +106,55 @@ async function execAll(session: Session, calls: PlannedCall[], ctx: Ctx): Promis
   for (const c of calls) {
     const log: CallLog = { step: c.step, endpointId: c.endpointId, label: c.label, status: "completed", runId: null, quotedMicros: c.quotedMicros, costMicros: 0, rows: 0 };
     out.push({ log });
+    const ledger = ctx.ledger;
+    const fp = callFingerprint(c.endpointId, c.input);
+    let reserved = false;
     try {
       const waiting = session.pending[c.idempotencyKey];
-      if (!waiting && ctx.unpriced?.includes(c.endpointId)) {
+      const stored = !waiting && ledger ? await ledger.recall(c.idempotencyKey, fp, ctx.now) : null;
+      if (!waiting && !stored && ctx.unpriced?.includes(c.endpointId)) {
         log.status = "skipped_price";
         log.error = "The live price could not be read, so the call was not made.";
         continue;
       }
-      if (!waiting && spent + c.quotedMicros > ctx.capMicros) {
+      if (!waiting && !stored && spent + c.quotedMicros > ctx.capMicros) {
         log.status = "skipped_budget";
         log.error = "The cap would be exceeded.";
         continue;
       }
-      const replay = done.has(c.label + c.endpointId);
-      const run: LoootRun = waiting ? await ctx.looot.getRun(waiting.runId) : await ctx.looot.runAndWait(c.endpointId, c.input, c.idempotencyKey);
+      if (!waiting && !stored && ledger) {
+        // Check order: quote, per-run cap (above), period budget, then the call.
+        const held = await ledger.reserve(c.idempotencyKey, c.quotedMicros, ctx.now, fp);
+        if (!held.ok) {
+          log.status = "skipped_budget";
+          log.error = held.message;
+          continue;
+        }
+        reserved = true;
+      }
+      const replay = done.has(c.label + c.endpointId) || Boolean(stored);
+      const run: LoootRun = stored ?? (waiting ? await ctx.looot.getRun(waiting.runId) : await ctx.looot.runAndWait(c.endpointId, c.input, c.idempotencyKey));
       log.runId = run.runId;
       if (!TERMINAL_STATUSES.has(run.status)) {
         log.status = "pending";
         session.pending[c.idempotencyKey] = { runId: run.runId, step: c.step, endpointId: c.endpointId, label: c.label };
-        if (!waiting) spent += c.quotedMicros;
+        // Still running at looot: the reservation stays until the run ends. It is never recorded failed at zero.
+        if (!waiting) {
+          spent += c.quotedMicros;
+          await ledger?.attach(c.idempotencyKey, run.runId);
+        }
         continue;
       }
       delete session.pending[c.idempotencyKey];
       const cost = replay || waiting ? 0 : run.actualCost !== undefined && run.actualCost !== null ? toMicros(run.actualCost) : run.status === "completed" ? c.quotedMicros : 0;
       log.costMicros = cost;
       spent += cost;
+      if (ledger && !stored) {
+        // A run that was waiting settles the reservation at its real cost, which the session did not count.
+        const real = waiting ? toMicros(run.actualCost) : cost;
+        await ledger.settle(c.idempotencyKey, fp, real, ctx.now, run.status === "completed" ? run : undefined);
+        reserved = false;
+      }
       if (run.status !== "completed") {
         log.status = "failed";
         log.error = run.error ? `${run.error.code ?? run.status}: ${run.error.message ?? ""}`.trim() : run.status;
@@ -130,6 +164,9 @@ async function execAll(session: Session, calls: PlannedCall[], ctx: Ctx): Promis
     } catch (e) {
       log.status = "failed";
       log.error = cleanError(e);
+      // An HTTP answer from looot means the call did not run, so the reservation goes back. A network error is unknown:
+      // the request may have been accepted, so the reservation stays until the hard expiry or a replay settles it.
+      if (reserved && e instanceof LoootError) await ledger?.release(c.idempotencyKey);
     }
   }
   session.spentMicros += spent;
