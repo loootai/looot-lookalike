@@ -54,3 +54,24 @@ describe("rows and wrappers", () => {
     expect(companyObject("x")).toBeNull();
   });
 });
+
+describe("normalizeCompany, AI Ark row shape", () => {
+  it("reads the domain from link, the name and industry from summary and the country from location.headquarter", () => {
+    const c = normalizeCompany({
+      link: { domain: "bytebot.ai", website: "https://www.bytebot.ai" },
+      summary: { name: "Bytebot", industry: "software development", staff: { range: { start: 2, end: 10 }, total: 1 } },
+      location: { headquarter: { country: "United States" } },
+      industries: ["software development", "generative ai"],
+      technologies: [{ name: "google cloud", category: "hosting" }],
+    });
+    expect(c?.domain).toBe("bytebot.ai");
+    expect(c?.name).toBe("Bytebot");
+    expect(c?.employees).toBe(6);
+    expect(c?.country).toBe("US");
+    expect(c?.technologies).toContain("google cloud");
+    expect(c?.industries).toContain("generative ai");
+  });
+  it("falls back to link.website when link.domain is missing", () => {
+    expect(normalizeCompany({ link: { website: "https://www.example.org/x" }, summary: { name: "X" } })?.domain).toBe("example.org");
+  });
+});

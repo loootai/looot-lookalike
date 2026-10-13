@@ -1,4 +1,5 @@
-<p align="center"><img src="assets/hero.png" alt="looot-lookalike" width="100%"></p>
+<p align="center"><img src="docs/media/banner.png" alt="looot-lookalike banner: the headline asks who looks like your best customers, with a Find lookalikes button priced at $0.101, the logos of Clay, Apify, Firecrawl and Exa, and two screenshots of the ranked list and one score breakdown" width="100%"></p>
+<p align="center"><sub>Logos and names belong to their owners. Public data from a live run on 2026-10-13. No affiliation.</sub></p>
 
 # looot-lookalike
 
@@ -12,6 +13,39 @@ Ocean.io's own pricing page refused automated reading on 2026-10-10 (HTTP 403). 
 
 ![Seeds, shared traits and ranked results, dark](docs/screenshots/results-dark.png)
 ![Seeds and shared traits, light](docs/screenshots/home-light.png)
+
+| | |
+|---|---|
+| ![Seeds in, shared traits out](docs/media/card-traits.png) | ![A ranked list of lookalikes](docs/media/card-results.png) |
+| ![Every score shows its reasons](docs/media/card-explain.png) | ![See the price before any call](docs/media/card-quote.png) |
+| ![Weights, prices and the call log](docs/media/card-scoring.png) | ![A daily and a monthly budget](docs/media/card-costs.png) |
+
+![Walkthrough of the app](docs/media/demo.gif)
+
+[Watch the walkthrough as MP4](docs/media/demo.mp4)
+
+## Live run
+
+On 2026-10-13 (UTC) I seeded the app with four companies from looot's own market: clay.com, apify.com, firecrawl.dev and exa.ai. I asked each search source for 20 rows.
+
+| What | Value |
+|---|---|
+| Calls | 6 (4 seed lookups, 2 searches) |
+| Charged | $0.1012 |
+| Ranked results | 37 |
+| Run ids | `run_36cf74c2...`, `run_5d194142...`, `run_f62780a3...`, `run_987efad9...`, `run_211bbd73...` and one more seed lookup, see `looot runs list` |
+
+The shared traits came out as software and data collection industries (75% of seeds), US (75%), 31 to 3000 employees, and keywords such as web crawling and ai agents.
+
+What was good. The AI Ark source returned companies that really are neighbours: Scrapeless, Syncloop, ScrapeNinja, Bytebot and Fixpoint all sit in scraping or browser automation, and the score reasons say why.
+
+What was bad. TheCompaniesAPI "similar" source matched on the name more than on the business. Hey Clay (a consumer-goods company), Clay Nation (blockchain) and two mining firms ranked in the top 20. They score low on industry but their size and region carry them. Read the breakdown before you trust a rank. A thin record shows its coverage ("45% data") instead of scoring a miss.
+
+What was surprising. AI Ark charged $0.024 for a request of 20 rows and returned 17. The quote is by requested rows, so a source that returns fewer rows still bills the full quote. Also, the first version of this run showed 0 rows from AI Ark: the app could not read AI Ark's row shape (`link.domain`, `summary.name`) and dropped all of them. That parser bug is fixed in this release (see the changelog).
+
+Everything in these screenshots is from that run. Nothing on screen is "Demo data". The Costs page shows $0.00 used because the run used the CLI pipeline, and the period budget file only records calls made from the web app.
+
+Logos and names belong to their owners. Public data from a live run on 2026-10-13. No affiliation.
 
 ## What you need
 
@@ -95,7 +129,7 @@ Four limits stand between a request and a charge, checked in this order: the quo
 
 - The quote is shown before any paid action. In the CLI it is `--dry-run`. In the UI it is a price dialog that sends back the amount you confirmed. If the live price is higher, nothing is called.
 - One cap covers a CLI run (`--cap`, default $1). The web UI applies `LOOKALIKE_CAP_USD` (default $1) to each step. The server takes the lower of that cap and the total you confirmed, so a larger number in a request changes nothing. A session can start 6 paid steps per 10 minutes. A call that would cross it is skipped and listed as `skipped_budget`.
-- Typical run at list price. 6 seeds and 50 rows from each source cost at most $0.2138. Ten seeds cost at most $0.253. `enrichTop: 10` adds up to $0.098. The sample run reads $0.10 because the sources returned fewer than 50 rows. No real run was priced.
+- Typical run at list price. 6 seeds and 50 rows from each source cost at most $0.2138. Ten seeds cost at most $0.253. `enrichTop: 10` adds up to $0.098. The sample run reads $0.10 because the sources returned fewer than 50 rows. A real run on 2026-10-13 with 4 seeds and 20 rows from each source cost $0.1012 (see Live run).
 - Failed calls are not charged by looot.
 - The period budget caps all steps together: a daily and a monthly amount (UTC), $10 and $50 until you change them. The owner changes them on the Costs page of the web UI, or sets the starting values with `LOOKALIKE_DAILY_USD` and `LOOKALIKE_MONTHLY_USD`. A request to `/api/seeds` or `/api/search` cannot carry a budget: a request with a budget field is refused with a 400 and nothing is called. The CLI refuses a run whose quote is above what is left, unless you pass `--partial`.
 - Before each paid call the app reserves its list price in `budget.json` (next to the session file), under a lock file, and skips the call if used plus reserved plus the price would pass the daily or the monthly budget. Two requests started together cannot both pass. When the call ends the reservation becomes the real charge. A failed call releases it. A call still running at looot (`pending`) keeps its reservation: it is never recorded as failed at $0 and the budget is never handed back early. Reserved money counts against the budget until the call ends.
@@ -147,7 +181,7 @@ Each result lists every signal with its weight, match, points, the reason in wor
 
 ## Signals, providers and cost
 
-Prices are looot list prices from the public catalog, read on 2026-10-10.
+Prices are looot list prices from the public catalog, read on 2026-10-10. The 2026-10-13 live run matched them.
 
 | Step | looot job | Endpoint | List price |
 | --- | --- | --- | --- |
@@ -156,7 +190,7 @@ Prices are looot list prices from the public catalog, read on 2026-10-10.
 | Search, similar to domains | company.similar | thecompaniesapi-companies-similar | $0.0019 per result |
 | Search, lookalike of up to 5 domains | company.lookalike | ai-ark-companies | $0.0012 per result |
 
-A typical run, 6 seeds and 50 rows from each source, is at most $0.2138 at list price. Ten seeds is at most $0.253. `enrichTop: 10` adds up to $0.098. The sample run reads $0.10 because the sources returned fewer than 50 rows. No real run was priced.
+A typical run, 6 seeds and 50 rows from each source, is at most $0.2138 at list price. Ten seeds is at most $0.253. `enrichTop: 10` adds up to $0.098. The sample run reads $0.10 because the sources returned fewer than 50 rows. A real run on 2026-10-13 with 4 seeds and 20 rows from each source cost $0.1012 (see Live run).
 
 ## Securing a deployment
 

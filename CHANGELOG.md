@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Fix: rows from the AI Ark source were all dropped because the parser did not read its shape (`link.domain`, `summary.name`, `summary.staff.range`, `location.headquarter.country`). A live run charged $0.024 for that call and ranked none of its 17 companies. The parser now reads them, and a test covers the shape.
+
+- Fix: sign-in from Chrome was refused with "Cross-site request refused" (403). The app sends `Referrer-Policy: no-referrer`, so Chrome posts the form with `Origin: null`. The same-origin guard now falls back to `Sec-Fetch-Site` when the origin is `null`.
+
 ## 0.1.4
 
 Spend limits, version 2. Before this, a paid step was limited only by the cap per step, an in-memory rate limit and the token balance. Repeating a request could be charged again, nothing limited spend across steps, and two requests started together could both pass the cap.

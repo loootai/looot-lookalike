@@ -61,25 +61,33 @@ export function companyObject(result: unknown): Obj | null {
   return isObj(cur) ? cur : null;
 }
 
+/** The midpoint of an AI Ark staff range such as { start: 2, end: 10 }. null when the range is missing. */
+function staffRange(v: unknown): number | null {
+  if (!isObj(v) || typeof v.start !== "number" || typeof v.end !== "number") return null;
+  return Math.round((v.start + v.end) / 2);
+}
+
 /** Reads one company from a provider row. Looks under the field names the public docs use. null when there is no domain. */
 export function normalizeCompany(row: unknown): Company | null {
   if (!isObj(row)) return null;
+  const link = isObj(row.link) ? row.link : {};
+  const summary = isObj(row.summary) ? row.summary : {};
   const domainRaw = isObj(row.domain) ? row.domain.domain : first(row, ["domain", "website", "url", "company_domain", "homepage"]);
-  const domain = hostOf(domainRaw) ?? hostOf(path(row, "about", "website"));
+  const domain = hostOf(domainRaw) ?? hostOf(path(row, "about", "website")) ?? hostOf(link.domain) ?? hostOf(link.website);
   if (!domain) return null;
   const about = isObj(row.about) ? row.about : {};
   const category = isObj(row.category) ? row.category : {};
   const location = isObj(row.location) ? row.location : {};
   const hq = isObj(path(row, "locations", "headquarters")) ? (path(row, "locations", "headquarters") as Obj) : {};
   const geo = isObj(row.geo) ? row.geo : {};
-  const countryRaw = first(row, ["country", "country_code", "countryCode", "hq_country"]) ?? path(location, "country", "code") ?? path(location, "country", "name") ?? location.country ?? first(geo, ["countryCode", "country"]) ?? path(hq, "country", "code") ?? path(hq, "country", "name") ?? hq.country;
-  const employeesRaw = first(row, ["employees", "employee_count", "employeeCount", "totalEmployees", "employees_range", "employeesRange", "size", "headcount"]) ?? first(about, ["totalEmployees", "employees"]) ?? path(row, "metrics", "employees") ?? path(row, "metrics", "employeesRange");
-  const industries = [...strings(first(row, ["industries", "industry", "industry_name", "sector"])), ...strings(about.industries), ...strings(category.industry), ...strings(category.sector)];
+  const countryRaw = first(row, ["country", "country_code", "countryCode", "hq_country"]) ?? path(row, "location", "headquarter", "country") ?? path(location, "country", "code") ?? path(location, "country", "name") ?? location.country ?? first(geo, ["countryCode", "country"]) ?? path(hq, "country", "code") ?? path(hq, "country", "name") ?? hq.country;
+  const employeesRaw = first(row, ["employees", "employee_count", "employeeCount", "totalEmployees", "employees_range", "employeesRange", "size", "headcount"]) ?? first(about, ["totalEmployees", "employees"]) ?? path(row, "metrics", "employees") ?? path(row, "metrics", "employeesRange") ?? staffRange(path(summary, "staff", "range"));
+  const industries = [...strings(first(row, ["industries", "industry", "industry_name", "sector"])), ...strings(about.industries), ...strings(category.industry), ...strings(category.sector), ...strings(summary.industry)];
   const technologies = [...strings(first(row, ["technologies", "tech", "techStack", "tech_stack", "tech_tags"])), ...strings(path(row, "technologies", "active"))];
-  const description = first(row, ["description", "about_us", "tagline"]) ?? path(row, "descriptions", "primary") ?? about.description;
+  const description = first(row, ["description", "about_us", "tagline"]) ?? path(row, "descriptions", "primary") ?? about.description ?? summary.description;
   return {
     domain,
-    name: (first(row, ["name", "company_name", "legalName"]) ?? about.name ?? null) as string | null,
+    name: (first(row, ["name", "company_name", "legalName"]) ?? about.name ?? summary.name ?? null) as string | null,
     description: typeof description === "string" ? description.slice(0, 400) : null,
     industries: clean(industries),
     employees: parseEmployees(employeesRaw),
